@@ -139,11 +139,12 @@ impl<'mir, 'tcx> BitDenotation<'tcx> for RequiresStorage<'mir, 'tcx> {
 
     fn before_terminator_effect(&self, sets: &mut GenKillSet<Local>, loc: Location) {
         self.check_for_borrow(sets, loc);
-
-        if let TerminatorKind::Call { destination: Some((Place { local, .. }, _)), .. } =
-            self.body[loc.block].terminator().kind
-        {
-            sets.gen(local);
+        match &self.body[loc.block].terminator().kind {
+            TerminatorKind::Call { destination: Some((Place { local, .. }, _)), .. }
+            | TerminatorKind::Yield { resume_arg: Place { local, .. }, .. } => {
+                sets.gen(*local);
+            }
+            _ => {}
         }
     }
 

@@ -283,7 +283,9 @@ impl MutVisitor<'tcx> for TransformVisitor<'tcx> {
         _location: Location,
     ) {
         // Replace an Local in the remap with a generator struct access
+        debug!("generator visit_place {:?}", place);
         if let Some(&(ty, variant_index, idx)) = self.remap.get(&place.local) {
+            debug!("generator visit_place replacing with ({:?}, {:?})", variant_index, idx);
             replace_base(place, self.make_field(variant_index, idx, ty), self.tcx);
         }
     }
@@ -798,6 +800,8 @@ fn compute_layout<'tcx>(
 
     let layout = GeneratorLayout { field_tys: tys, variant_fields, storage_conflicts };
 
+    debug!("generator remap = {:?}", remap);
+
     (remap, layout, storage_liveness)
 }
 
@@ -1007,7 +1011,7 @@ fn insert_panic_block<'tcx>(
 
 fn create_generator_resume_function<'tcx>(
     tcx: TyCtxt<'tcx>,
-    transform: TransformVisitor<'tcx>,
+    transform: &TransformVisitor<'tcx>,
     def_id: DefId,
     source: MirSource<'tcx>,
     body: &mut BodyAndCache<'tcx>,
@@ -1121,10 +1125,16 @@ fn create_cases<'tcx>(
                 if operation == Operation::Resume {
                     // Move the resume argument to the destination place of the `Yield` terminator
                     let resume_arg = Local::new(2); // 0 = return, 1 = self
+                    let dst_place = match transform.remap.get(&point.resume_arg.local) {
+                        Some(&(ty, variant_index, idx)) => {
+                            transform.make_field(variant_index, idx, ty)
+                        }
+                        None => point.resume_arg,
+                    };
                     statements.push(Statement {
                         source_info,
                         kind: StatementKind::Assign(box (
-                            point.resume_arg,
+                            dst_place,
                             Rvalue::Use(Operand::Move(resume_arg.into())),
                         )),
                     });
@@ -1257,6 +1267,6 @@ impl<'tcx> MirPass<'tcx> for StateTransform {
         body.generator_drop = Some(box drop_shim);
 
         // Create the Generator::resume function
-        create_generator_resume_function(tcx, transform, def_id, source, body);
+        create_generator_resume_function(tcx, &transform, def_id, source, body);
     }
 }
